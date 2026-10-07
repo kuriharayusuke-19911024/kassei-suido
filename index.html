@@ -803,6 +803,25 @@ let bsRatio = 10;   // BSは標準で必ず併用（10：1）
 PRODUCTS.forEach(p=>qty[p.code]=0);
 
 const yen = n => "¥" + Math.round(Number(n)).toLocaleString("ja-JP");
+// GASはまれにHTMLを返すので、JSONが返るまで数回やり直す
+async function gasGet(params, tries){
+  tries = tries || 4;
+  let lastErr = "";
+  for(let i = 0; i < tries; i++){
+    try{
+      const r = await fetch(GAS_URL + "?" + params + "&t=" + Date.now() + "_" + i, {cache:"no-store"});
+      const txt = await r.text();
+      const head = txt.trim().charAt(0);
+      if(head === "[" || head === "{") return JSON.parse(txt);
+      lastErr = "HTMLが返りました";
+    }catch(e){ lastErr = e.message; }
+    await new Promise(res => setTimeout(res, 600 * (i + 1)));
+  }
+  throw new Error(lastErr || "読み込みに失敗しました");
+}
+// 受付日の年月を日本時間で求める（ISO文字列を切ると月がずれることがある）
+const ym = v => { const d = new Date(v); if(isNaN(d.getTime())) return String(v).slice(0,7);
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0"); };
 const fmtDate = v => { if(!v) return ""; const d = new Date(v); if(isNaN(d.getTime())) return String(v);
   return d.getFullYear() + "/" + String(d.getMonth()+1).padStart(2,"0") + "/" + String(d.getDate()).padStart(2,"0"); };
 const $ = id => document.getElementById(id);
@@ -1119,8 +1138,7 @@ $("admBtn").addEventListener("click", async ()=>{
   if(!GAS_URL){ alert("GASのURLが設定されていません。"); return; }
   let res = null;
   try{
-    const r = await fetch(GAS_URL + "?action=adminLogin&pass=" + encodeURIComponent(pw) + "&t=" + Date.now(), {cache:"no-store"});
-    res = await r.json();
+    res = await gasGet("action=adminLogin&pass=" + encodeURIComponent(pw));
   }catch(e){ alert("通信に失敗しました。もう一度お試しください。"); return; }
   if(!res || !res.ok){ alert("パスワードが違います。"); return; }
   SELLER.bank = res.bank || SELLER.bank;
@@ -1140,11 +1158,14 @@ document.querySelectorAll(".tabs button").forEach(b=>{
 });
 async function loadOrders(){
   if(GAS_URL){
+    $("ordList").innerHTML = '<div class="empty">読み込んでいます…</div>';
     try{
-      const r = await fetch(GAS_URL+"?action=listOrders");
-      const d = await r.json();
+      const d = await gasGet("action=listOrders");
       if(Array.isArray(d)) ORDERS = d;
-    }catch(e){ console.warn("読み込み失敗",e); }
+    }catch(e){
+      $("ordList").innerHTML = '<div class="empty">読み込みに失敗しました（' + e.message + '）。「読み込み直す」を押してください。</div>';
+      return;
+    }
   }
   renderOrders();
 }
@@ -1225,7 +1246,7 @@ function fillCustomers(){
   const sel = $("invCust");
   INV = {};
   if(!m){ sel.innerHTML = '<option value="">— 先に月を選んでください —</option>'; $("invList").innerHTML = '<div class="empty">締め月を選んでください。</div>'; return; }
-  ORDERS.filter(o => String(o.receivedAt).slice(0,7) === m)
+  ORDERS.filter(o => ym(o.receivedAt) === m)
         .forEach(o => { (INV[o.company] = INV[o.company] || []).push(o); });
   const names = Object.keys(INV);
   if(!names.length){
