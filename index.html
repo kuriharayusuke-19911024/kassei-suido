@@ -740,7 +740,7 @@ const SELLER = {
   addr:"兵庫県丹波市市島町上竹田915-5",
   tel:"050-8890-8987",
   notifyMail:"tamba.dosho@gmail.com",   // 注文の通知先（GAS側で使用）
-  bank:"（振込先の銀行名・支店名・口座番号・口座名義）",
+  bank:"",                               // 管理画面にログインしたときGASから取得（公開ページには書かない）
   // 適格請求書発行事業者の登録をしていないため、請求書に登録番号は載せません
   invoiceRegistered:false
 };
@@ -1107,10 +1107,17 @@ function reset(){
 /* =====================================================================
    管理画面
    ===================================================================== */
-$("admBtn").addEventListener("click",()=>{
+$("admBtn").addEventListener("click", async ()=>{
   const pw = prompt("管理用パスワード");
   if(pw === null) return;
-  if(pw !== "1108"){ alert("パスワードが違います。"); return; }
+  if(!GAS_URL){ alert("GASのURLが設定されていません。"); return; }
+  let res = null;
+  try{
+    const r = await fetch(GAS_URL + "?action=adminLogin&pass=" + encodeURIComponent(pw) + "&t=" + Date.now(), {cache:"no-store"});
+    res = await r.json();
+  }catch(e){ alert("通信に失敗しました。もう一度お試しください。"); return; }
+  if(!res || !res.ok){ alert("パスワードが違います。"); return; }
+  SELLER.bank = res.bank || SELLER.bank;
   $("admin").classList.add("on"); loadOrders();
   $("admin").scrollIntoView({behavior:"smooth"});
 });
