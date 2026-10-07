@@ -326,6 +326,9 @@ footer .adm{color:#5C6E75;text-decoration:underline;background:none;border:none;
 .inv .sum{margin:14px 0 0 auto;width:min(310px,100%)}
 .inv .sum div{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line2)}
 .inv .sum div.g{font-family:var(--mincho);font-size:20px;border-bottom:2px solid var(--ink)}
+.invbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  background:#fff;border:1px solid var(--line);border-bottom:none;border-radius:3px 3px 0 0;padding:12px 16px;margin-top:14px}
+.invbar .invcust{font-family:var(--mincho);font-size:16px}
 .invnote{margin-top:12px;font-size:11.5px;color:var(--ink3);line-height:1.7}
 .inv .bank{margin-top:20px;font-size:12.5px;color:var(--ink2);border:1px dashed var(--line);padding:11px 15px}
 .todo{color:var(--clay)}
@@ -335,6 +338,7 @@ footer .adm{color:#5C6E75;text-decoration:underline;background:none;border:none;
   header,.hero,section,footer,.tabs,.selrow,.noprint{display:none!important}
   .admin,.panel{display:block!important;padding:0}
   .inv{border:none;padding:0;page-break-after:always}
+  .inv.hideprint{display:none!important}
   .wrap{max-width:none;padding:0}
 }
 </style>
@@ -692,7 +696,7 @@ footer .adm{color:#5C6E75;text-decoration:underline;background:none;border:none;
       <div class="selrow noprint">
         <input id="invMonth" type="month">
         <button class="minibtn pri" id="invMake">請求書をつくる</button>
-        <button class="minibtn" id="invPrint">印刷 / PDF</button>
+        <button class="minibtn" id="invPrint">全員まとめて印刷</button>
       </div>
       <div id="invList"><div class="empty">締め月を選んで「請求書をつくる」を押してください。</div></div>
     </div>
@@ -799,6 +803,8 @@ let bsRatio = 10;   // BSは標準で必ず併用（10：1）
 PRODUCTS.forEach(p=>qty[p.code]=0);
 
 const yen = n => "¥" + Math.round(Number(n)).toLocaleString("ja-JP");
+const fmtDate = v => { if(!v) return ""; const d = new Date(v); if(isNaN(d.getTime())) return String(v);
+  return d.getFullYear() + "/" + String(d.getMonth()+1).padStart(2,"0") + "/" + String(d.getDate()).padStart(2,"0"); };
 const $ = id => document.getElementById(id);
 const P = code => PRODUCTS.find(p=>p.code===code);
 
@@ -1161,7 +1167,7 @@ function renderOrders(){
         ${o.items.map(l=>`<div><span>${l.name} × ${l.qty}${l.unitOk?"":" ⚠発送単位外"}</span><span class="num">${yen(l.amount)}</span></div>`).join("")}
         <div style="border:none;padding-top:6px"><span>税込合計</span><span class="num">${yen(o.total)}</span></div>
       </div>
-      <div class="meta">〒${o.zip} ${o.addr}<br>希望日：${o.wishDate||"指定なし"}／支払：${o.pay}${o.note?"<br>連絡事項："+o.note:""}</div>
+      <div class="meta">〒${o.zip} ${o.addr}<br>希望日：${o.wishDate ? fmtDate(o.wishDate) : "指定なし"}／支払：${o.pay}${o.note?"<br>連絡事項："+o.note:""}</div>
       <div class="acts noprint">
         <button class="pri" onclick="copyForMaker('${o.id}')">チクテック発注用にコピー</button>
         ${NEXT[o.status]?`<button onclick="advance('${o.id}')">${NEXT[o.status]}にする</button>`:""}
@@ -1183,7 +1189,7 @@ ${o.items.map(l=>`・${l.name}（${l.spec}）　${l.qty}`).join("\n")}
 ${o.company}　${o.person} 様
 〒${o.zip} ${o.addr}
 TEL ${o.tel}
-配送希望日：${o.wishDate||"指定なし"}
+配送希望日：${o.wishDate ? fmtDate(o.wishDate) : "指定なし"}
 ${o.note?"備考："+o.note:""}
 
 弊社受付番号：${o.id}
@@ -1223,14 +1229,18 @@ $("invMake").addEventListener("click",()=>{
   const closing = `${y}年${mm}月${last.getDate()}日`;
   const due = `${mm===12?y+1:y}年${mm===12?1:mm+1}月末日`;
 
-  $("invList").innerHTML = Object.keys(byCust).map(cust=>{
+  $("invList").innerHTML = Object.keys(byCust).map((cust, idx)=>{
     const rows = [];
     byCust[cust].forEach(o=>o.items.forEach(l=>rows.push({
       date:new Date(o.receivedAt).toLocaleDateString("ja-JP"),
       name:l.name+"（"+l.spec+"）", qty:l.qty, price:l.price, amount:l.amount })));
     const sub = rows.reduce((s,r)=>s+r.amount,0), tax = Math.floor(sub*TAX);
     return `
-    <div class="inv">
+    <div class="invbar noprint">
+      <span class="invcust">${cust}</span>
+      <button class="minibtn pri" onclick="printOne(${idx})">この請求書だけ印刷 / PDF</button>
+    </div>
+    <div class="inv" data-i="${idx}">
       <h2>請求書</h2>
       <div class="ihd">
         <div><div class="to">${cust} 御中</div>
@@ -1252,7 +1262,17 @@ $("invMake").addEventListener("click",()=>{
     </div>`;
   }).join("");
 });
-$("invPrint").addEventListener("click",()=>window.print());
+$("invPrint").addEventListener("click",()=>{
+  document.querySelectorAll(".inv").forEach(el=>el.classList.remove("hideprint"));
+  window.print();
+});
+function printOne(i){
+  document.querySelectorAll(".inv").forEach(el=>{
+    el.classList.toggle("hideprint", String(el.dataset.i) !== String(i));
+  });
+  window.print();
+  setTimeout(()=>document.querySelectorAll(".inv").forEach(el=>el.classList.remove("hideprint")), 1000);
+}
 
 /* =====================================================================
    年間実績
