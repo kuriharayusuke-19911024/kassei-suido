@@ -803,6 +803,7 @@ let bsRatio = 10;   // BSは標準で必ず併用（10：1）
 PRODUCTS.forEach(p=>qty[p.code]=0);
 
 const yen = n => "¥" + Math.round(Number(n)).toLocaleString("ja-JP");
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 // GASはまれにHTMLを返すので、JSONが返るまで数回やり直す
 async function gasGet(params, tries){
   tries = tries || 4;
