@@ -695,8 +695,8 @@ footer .adm{color:#5C6E75;text-decoration:underline;background:none;border:none;
     <div class="panel" id="p2">
       <div class="selrow noprint">
         <input id="invMonth" type="month">
-        <button class="minibtn pri" id="invMake">請求書をつくる</button>
-        <button class="minibtn" id="invPrint">全員まとめて印刷</button>
+        <select id="invCust"><option value="">— 先に月を選んでください —</option></select>
+        <button class="minibtn" id="invPrint">印刷 / PDFで保存</button>
       </div>
       <div id="invList"><div class="empty">締め月を選んで「請求書をつくる」を押してください。</div></div>
     </div>
@@ -1134,6 +1134,7 @@ document.querySelectorAll(".tabs button").forEach(b=>{
     b.classList.add("on");
     document.querySelectorAll(".panel").forEach(p=>p.classList.remove("on"));
     $(b.dataset.p).classList.add("on");
+    if(b.dataset.p==="p2") fillCustomers();
     if(b.dataset.p==="p3") renderYear();
   });
 });
@@ -1217,40 +1218,56 @@ async function advance(id){
    ===================================================================== */
 (function(){ const d=new Date(); $("invMonth").value = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); })();
 
-$("invMake").addEventListener("click",()=>{
+let INV = {};   // { 顧客名: [注文...] }
+
+function fillCustomers(){
   const m = $("invMonth").value;
-  if(!m){ alert("締め月を選んでください。"); return; }
-  const target = ORDERS.filter(o=>o.receivedAt.slice(0,7)===m);
-  if(!target.length){ $("invList").innerHTML = '<div class="empty">この月の注文はありません。</div>'; return; }
-  const byCust = {};
-  target.forEach(o=>{ (byCust[o.company] = byCust[o.company] || []).push(o); });
-  const [y,mm] = m.split("-").map(Number);
-  const last = new Date(y,mm,0);
+  const sel = $("invCust");
+  INV = {};
+  if(!m){ sel.innerHTML = '<option value="">— 先に月を選んでください —</option>'; $("invList").innerHTML = '<div class="empty">締め月を選んでください。</div>'; return; }
+  ORDERS.filter(o => String(o.receivedAt).slice(0,7) === m)
+        .forEach(o => { (INV[o.company] = INV[o.company] || []).push(o); });
+  const names = Object.keys(INV);
+  if(!names.length){
+    sel.innerHTML = '<option value="">この月の注文はありません</option>';
+    $("invList").innerHTML = '<div class="empty">この月の注文はありません。</div>';
+    return;
+  }
+  sel.innerHTML = '<option value="">— お客さんを選んでください —</option>'
+    + names.map(n => '<option value="' + esc(n) + '">' + esc(n) + '</option>').join('');
+  $("invList").innerHTML = '<div class="empty">お客さんを選ぶと、その方の請求書だけが出ます。</div>';
+}
+
+function renderInvoice(){
+  const m = $("invMonth").value;
+  const cust = $("invCust").value;
+  if(!m || !cust || !INV[cust]){
+    $("invList").innerHTML = '<div class="empty">お客さんを選ぶと、その方の請求書だけが出ます。</div>';
+    return;
+  }
+  const [y, mm] = m.split("-").map(Number);
+  const last = new Date(y, mm, 0);
   const closing = `${y}年${mm}月${last.getDate()}日`;
   const due = `${mm===12?y+1:y}年${mm===12?1:mm+1}月末日`;
 
-  $("invList").innerHTML = Object.keys(byCust).map((cust, idx)=>{
-    const rows = [];
-    byCust[cust].forEach(o=>o.items.forEach(l=>rows.push({
-      date:new Date(o.receivedAt).toLocaleDateString("ja-JP"),
-      name:l.name+"（"+l.spec+"）", qty:l.qty, price:l.price, amount:l.amount })));
-    const sub = rows.reduce((s,r)=>s+r.amount,0), tax = Math.floor(sub*TAX);
-    return `
-    <div class="invbar noprint">
-      <span class="invcust">${cust}</span>
-      <button class="minibtn pri" onclick="printOne(${idx})">この請求書だけ印刷 / PDF</button>
-    </div>
-    <div class="inv" data-i="${idx}">
+  const rows = [];
+  INV[cust].forEach(o => o.items.forEach(l => rows.push({
+    date: fmtDate(o.receivedAt),
+    name: l.name + "（" + l.spec + "）", qty: l.qty, price: l.price, amount: l.amount })));
+  const sub = rows.reduce((s,r) => s + r.amount, 0), tax = Math.floor(sub * TAX);
+
+  $("invList").innerHTML = `
+    <div class="inv">
       <h2>請求書</h2>
       <div class="ihd">
-        <div><div class="to">${cust} 御中</div>
+        <div><div class="to">${esc(cust)} 御中</div>
           <div style="font-size:12.5px;color:var(--ink2);margin-top:10px">${closing} 締め<br>お支払期限：${due}</div></div>
         <div class="from">${SELLER.name}<br>${SELLER.zip}<br>${SELLER.addr}<br>TEL ${SELLER.tel}</div>
       </div>
       <div class="amt"><span>ご請求金額（税込）</span><b class="num">${yen(sub+tax)}</b></div>
       <table>
         <tr><th style="width:15%">日付</th><th>品名</th><th style="width:12%">数量</th><th style="width:16%">単価（税抜）</th><th style="width:18%">金額（税抜）</th></tr>
-        ${rows.map(r=>`<tr><td class="r">${r.date}</td><td>${r.name}</td><td class="r">${r.qty}</td><td class="r">${yen(r.price)}</td><td class="r">${yen(r.amount)}</td></tr>`).join("")}
+        ${rows.map(r => `<tr><td class="r">${r.date}</td><td>${esc(r.name)}</td><td class="r">${r.qty}</td><td class="r">${yen(r.price)}</td><td class="r">${yen(r.amount)}</td></tr>`).join("")}
       </table>
       <div class="sum">
         <div><span>10%対象　小計（税抜）</span><span class="num">${yen(sub)}</span></div>
@@ -1260,19 +1277,14 @@ $("invMake").addEventListener("click",()=>{
       <div class="bank">お振込先：${SELLER.bank}<br>※振込手数料は御社にてご負担をお願いいたします。</div>
       <div class="invnote">本書は適格請求書（インボイス）ではありません。当社は適格請求書発行事業者の登録を行っておりません。</div>
     </div>`;
-  }).join("");
-});
-$("invPrint").addEventListener("click",()=>{
-  document.querySelectorAll(".inv").forEach(el=>el.classList.remove("hideprint"));
-  window.print();
-});
-function printOne(i){
-  document.querySelectorAll(".inv").forEach(el=>{
-    el.classList.toggle("hideprint", String(el.dataset.i) !== String(i));
-  });
-  window.print();
-  setTimeout(()=>document.querySelectorAll(".inv").forEach(el=>el.classList.remove("hideprint")), 1000);
 }
+
+$("invMonth").addEventListener("change", fillCustomers);
+$("invCust").addEventListener("change", renderInvoice);
+$("invPrint").addEventListener("click", ()=>{
+  if(!$("invList").querySelector(".inv")){ alert("先に月とお客さんを選んでください。"); return; }
+  window.print();
+});
 
 /* =====================================================================
    年間実績
