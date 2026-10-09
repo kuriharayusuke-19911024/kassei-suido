@@ -334,11 +334,15 @@ footer .adm{color:#5C6E75;text-decoration:underline;background:none;border:none;
 .todo{color:var(--clay)}
 .empty{color:var(--ink3);font-size:14px;padding:22px;text-align:center}
 @media print{
+  /* 印刷するのは「選んだお客さん1社の請求書」だけ */
   body{background:#fff}
-  header,.hero,section,footer,.tabs,.selrow,.noprint{display:none!important}
-  .admin,.panel{display:block!important;padding:0}
-  .inv{border:none;padding:0;page-break-after:always}
-  .inv.hideprint{display:none!important}
+  body > *{display:none!important}
+  body > .admin{display:block!important;padding:0}
+  .admin .tabs,.admin .selrow,.noprint{display:none!important}
+  .admin .panel{display:none!important}
+  .admin #p2{display:block!important}
+  #invList{display:block!important}
+  .inv{border:none;padding:0}
   .wrap{max-width:none;padding:0}
 }
 </style>
