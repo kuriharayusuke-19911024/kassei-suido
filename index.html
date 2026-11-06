@@ -698,9 +698,13 @@ footer .adm{color:#5C6E75;text-decoration:underline;background:none;border:none;
     </div>
     <div class="panel" id="p2">
       <div class="selrow noprint">
-        <input id="invMonth" type="month">
+        <input id="invMonth" type="month" title="最初の月">
+        <span style="align-self:center">〜</span>
+        <input id="invMonthTo" type="month" title="締め月（最後の月）">
         <select id="invCust"><option value="">— 先に月を選んでください —</option></select>
-        <button class="minibtn" id="invPrint">印刷 / PDFで保存</button>
+        <label style="align-self:center;font-size:13px;white-space:nowrap"><input type="checkbox" id="invInclBilled"> 請求済も含める</label>
+        <button class="minibtn" id="invPrint">印刷</button>
+        <button class="minibtn" id="invPdf">PDFでダウンロード</button>
       </div>
       <div id="invList"><div class="empty">締め月を選んで「請求書をつくる」を押してください。</div></div>
     </div>
@@ -744,9 +748,9 @@ const IMAGES = {
 
 const SELLER = {
   name:"株式会社 丹波土匠",
-  zip:"〒669-4311",
+  zip:"〒669-4341",
   addr:"兵庫県丹波市市島町上竹田915-5",
-  tel:"050-8890-8987",
+  tel:"090-7763-4337",
   notifyMail:"tamba.dosho@gmail.com",   // 注文の通知先（GAS側で使用）
   bank:"",                               // 管理画面にログインしたときGASから取得（公開ページには書かない）
   // 適格請求書発行事業者の登録をしていないため、請求書に登録番号は載せません
@@ -1242,21 +1246,30 @@ async function advance(id){
 /* =====================================================================
    月末請求
    ===================================================================== */
-(function(){ const d=new Date(); $("invMonth").value = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); })();
+(function(){ const d=new Date(); const v=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); $("invMonth").value = v; $("invMonthTo").value = v; })();
+// 期間（最初の月〜締め月）。締め月が空・最初の月より前なら最初の月だけ
+function invRange(){
+  const a = $("invMonth").value; let b = $("invMonthTo").value;
+  if(!b || b < a) b = a;
+  return [a, b];
+}
+const jm = v => { const [y,m] = v.split("-").map(Number); return `${y}年${m}月`; };
 
 let INV = {};   // { 顧客名: [注文...] }
 
 function fillCustomers(){
-  const m = $("invMonth").value;
+  const [m, mTo] = invRange();
   const sel = $("invCust");
+  const inclBilled = $("invInclBilled").checked;
   INV = {};
   if(!m){ sel.innerHTML = '<option value="">— 先に月を選んでください —</option>'; $("invList").innerHTML = '<div class="empty">締め月を選んでください。</div>'; return; }
-  ORDERS.filter(o => ym(o.receivedAt) === m)
+  ORDERS.filter(o => { const k = ym(o.receivedAt); return k >= m && k <= mTo && (inclBilled || o.status !== "請求済"); })
+        .sort((x,y) => new Date(x.receivedAt) - new Date(y.receivedAt))
         .forEach(o => { (INV[o.company] = INV[o.company] || []).push(o); });
   const names = Object.keys(INV);
   if(!names.length){
-    sel.innerHTML = '<option value="">この月の注文はありません</option>';
-    $("invList").innerHTML = '<div class="empty">この月の注文はありません。</div>';
+    sel.innerHTML = '<option value="">この期間の未請求の注文はありません</option>';
+    $("invList").innerHTML = '<div class="empty">この期間の未請求の注文はありません（請求済も出すときは「請求済も含める」にチェック）。</div>';
     return;
   }
   sel.innerHTML = '<option value="">— お客さんを選んでください —</option>'
@@ -1265,7 +1278,7 @@ function fillCustomers(){
 }
 
 function renderInvoice(){
-  const m = $("invMonth").value;
+  const [m0, m] = invRange();
   const cust = $("invCust").value;
   if(!m || !cust || !INV[cust]){
     $("invList").innerHTML = '<div class="empty">お客さんを選ぶと、その方の請求書だけが出ます。</div>';
@@ -1275,6 +1288,7 @@ function renderInvoice(){
   const last = new Date(y, mm, 0);
   const closing = `${y}年${mm}月${last.getDate()}日`;
   const due = `${mm===12?y+1:y}年${mm===12?1:mm+1}月末日`;
+  const multi = m0 !== m;
 
   const rows = [];
   INV[cust].forEach(o => o.items.forEach(l => rows.push({
@@ -1300,16 +1314,35 @@ function renderInvoice(){
         <div><span>消費税相当額（10%）</span><span class="num">${yen(tax)}</span></div>
         <div class="g"><span>合計（税込）</span><span class="num">${yen(sub+tax)}</span></div>
       </div>
-      <div class="bank">お振込先：${SELLER.bank}<br>※振込手数料は御社にてご負担をお願いいたします。</div>
+      ${multi ? `<div class="invnote">※${jm(m0)}分〜${jm(m)}分をまとめてご請求申し上げます。</div>` : ""}
+      <div class="bank">お振込先：${SELLER.bank || '<b style="color:#b33">（振込先が未取得です。管理画面に入り直してください）</b>'}<br>※振込手数料は御社にてご負担をお願いいたします。</div>
       <div class="invnote">本書は適格請求書（インボイス）ではありません。当社は適格請求書発行事業者の登録を行っておりません。</div>
     </div>`;
 }
 
-$("invMonth").addEventListener("change", fillCustomers);
+$("invMonth").addEventListener("change", ()=>{ if(!$("invMonthTo").value || $("invMonthTo").value < $("invMonth").value) $("invMonthTo").value = $("invMonth").value; fillCustomers(); });
+$("invMonthTo").addEventListener("change", fillCustomers);
+$("invInclBilled").addEventListener("change", fillCustomers);
 $("invCust").addEventListener("change", renderInvoice);
 $("invPrint").addEventListener("click", ()=>{
   if(!$("invList").querySelector(".inv")){ alert("先に月とお客さんを選んでください。"); return; }
   window.print();
+});
+// PDFをファイルでダウンロード（ファイル名：請求書_活性誘導水_お客さん_期間.pdf）
+$("invPdf").addEventListener("click", async ()=>{
+  const el = $("invList").querySelector(".inv");
+  if(!el){ alert("先に月とお客さんを選んでください。"); return; }
+  if(!SELLER.bank && !confirm("振込先が入っていません。このままPDFにしますか？")) return;
+  if(!window.html2pdf){
+    await new Promise((ok,ng)=>{ const sc=document.createElement("script");
+      sc.src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+      sc.onload=ok; sc.onerror=()=>ng(new Error("PDFの部品を読み込めませんでした")); document.head.appendChild(sc); });
+  }
+  const [m0, m] = invRange();
+  const period = m0===m ? m.replace("-","") : m0.replace("-","")+"-"+m.replace("-","");
+  const name = `請求書_活性誘導水_${$("invCust").value.replace(/[\\/:*?"<>|\s　]/g,"")}_${period}.pdf`;
+  await html2pdf().set({ margin:[12,12,12,12], filename:name, image:{type:"jpeg",quality:0.98},
+    html2canvas:{scale:2, backgroundColor:"#ffffff"}, jsPDF:{unit:"mm", format:"a4", orientation:"portrait"} }).from(el).save();
 });
 
 /* =====================================================================
