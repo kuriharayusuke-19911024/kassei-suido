@@ -684,6 +684,7 @@ footer .adm{color:#5C6E75;text-decoration:underline;background:none;border:none;
       <button data-p="p2">月末請求</button>
       <button data-p="p3">年間実績</button>
       <button data-p="p0" style="margin-left:auto">閉じる</button>
+      <button id="admForget" title="この端末に保存したログインを消します">この端末のログインを解除</button>
     </div>
     <div class="panel on" id="p1">
       <div class="selrow noprint">
@@ -1142,6 +1143,8 @@ function reset(){
    管理画面
    ===================================================================== */
 $("admBtn").addEventListener("click", async ()=>{
+  // この端末でログイン済みなら、パスワードを聞かずに開く
+  try{ if(localStorage.getItem(ADM_KEY)){ openAdmin(true); return; } }catch(e){}
   const pw = prompt("管理用パスワード");
   if(pw === null) return;
   if(!GAS_URL){ alert("GASのURLが設定されていません。"); return; }
@@ -1151,10 +1154,31 @@ $("admBtn").addEventListener("click", async ()=>{
   }catch(e){ alert("通信に失敗しました。もう一度お試しください。"); return; }
   if(!res || !res.ok){ alert("パスワードが違います。"); return; }
   SELLER.bank = res.bank || SELLER.bank;
-  $("admin").classList.add("on"); loadOrders();
-  $("admin").scrollIntoView({behavior:"smooth"});
+  // この端末（ブラウザ）でログインを覚える。パスワードそのものは保存しない
+  try{ localStorage.setItem(ADM_KEY, JSON.stringify({bank:SELLER.bank, at:Date.now()})); }catch(e){}
+  openAdmin(true);
 });
-document.querySelectorAll(".tabs button").forEach(b=>{
+const ADM_KEY = "kassei_admin_v1";
+function openAdmin(scroll){
+  $("admin").classList.add("on"); loadOrders();
+  if(scroll) $("admin").scrollIntoView({behavior:"smooth"});
+}
+// 前にこの端末でログインしていれば、管理画面と振込先をそのまま使える
+// （URLの末尾に #admin を付けて開くと管理画面が開いた状態になる）
+(function(){
+  let saved = null;
+  try{ saved = JSON.parse(localStorage.getItem(ADM_KEY) || "null"); }catch(e){}
+  if(!saved) return;
+  if(saved.bank) SELLER.bank = saved.bank;
+  if(location.hash === "#admin") openAdmin(false);
+})();
+$("admForget").addEventListener("click", ()=>{
+  try{ localStorage.removeItem(ADM_KEY); }catch(e){}
+  SELLER.bank = "";
+  $("admin").classList.remove("on");
+  alert("この端末のログインを解除しました。");
+});
+document.querySelectorAll(".tabs button[data-p]").forEach(b=>{
   b.addEventListener("click",()=>{
     if(b.dataset.p==="p0"){ $("admin").classList.remove("on"); return; }
     document.querySelectorAll(".tabs button").forEach(x=>x.classList.remove("on"));
